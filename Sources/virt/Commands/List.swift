@@ -40,13 +40,11 @@ struct List: ParsableCommand {
     }
 
     private func vmStatus(dir: VMDirectory) -> String {
-        guard FileManager.default.fileExists(atPath: dir.pidURL.path),
-              let pidString = try? String(contentsOf: dir.pidURL, encoding: .utf8)
-                  .trimmingCharacters(in: .whitespacesAndNewlines),
-              let pid = Int32(pidString),
-              kill(pid, 0) == 0 else {
-            return "stopped"
-        }
+        guard VMLock.isLocked(dir) else { return "stopped" }
+        if let pid = try? String(contentsOf: dir.pidURL, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines), !pid.isEmpty {
         return "running (PID \(pid))"
+        }
+        return "running"
     }
 }

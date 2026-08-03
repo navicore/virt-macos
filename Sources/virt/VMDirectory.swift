@@ -29,6 +29,33 @@ struct VMDirectory {
         rootURL.appendingPathComponent("vm.pid")
     }
 
+    var lockURL: URL {
+        rootURL.appendingPathComponent("vm.lock")
+    }
+
+    var logURL: URL {
+        rootURL.appendingPathComponent("vm.log")
+    }
+
+    var kernelURL: URL {
+        rootURL.appendingPathComponent("kernel")
+    }
+
+    var initrdURL: URL {
+        rootURL.appendingPathComponent("initrd")
+    }
+
+    /// Direct kernel boot requires both files; exactly one is a broken import.
+    var hasKernelBoot: Bool {
+        let fm = FileManager.default
+        return fm.fileExists(atPath: kernelURL.path) && fm.fileExists(atPath: initrdURL.path)
+    }
+
+    var hasPartialKernelBoot: Bool {
+        let fm = FileManager.default
+        return fm.fileExists(atPath: kernelURL.path) != fm.fileExists(atPath: initrdURL.path)
+    }
+
     var exists: Bool {
         FileManager.default.fileExists(atPath: rootURL.path)
     }

@@ -22,14 +22,13 @@ struct Install: ParsableCommand {
             throw ValidationError("VM '\(name)' does not exist. Run 'virt create' first.")
         }
 
-        // Check if already running
-        if FileManager.default.fileExists(atPath: dir.pidURL.path) {
-            let pidString = try String(contentsOf: dir.pidURL, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
-            if let pid = Int32(pidString), kill(pid, 0) == 0 {
-                throw ValidationError("VM '\(name)' is already running (PID \(pid)).")
-            }
-            try? FileManager.default.removeItem(at: dir.pidURL)
+        if let iso = iso {
+            try checkISOArchitecture(iso)
         }
+
+        // Held for the life of the process; released by the kernel on death.
+        let lock = try VMLock.acquire(dir: dir)
+        defer { lock.release() }
 
         let config = try VMConfig.load(from: dir.configURL)
 
@@ -42,5 +41,25 @@ struct Install: ParsableCommand {
         let instance = VMInstance(config: config, dir: dir, isoPath: iso, sharePath: share)
         let app = InstallerApp(vmInstance: instance)
         try app.run()
+    }
+
+    /// Virtualization.framework cannot run x86 guests — fail fast with a
+    /// clear error instead of a black window.
+    private func checkISOArchitecture(_ iso: String) throws {
+        let url = URL(fileURLWithPath: iso)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw ValidationError("ISO file not found: \(iso)")
+        }
+        switch ISOCheck.detect(url: url) {
+        case .arm64:
+            break
+        case .x86_64:
+            throw ValidationError("""
+                ISO is x86_64 — only ARM64 (aarch64) ISOs can run on Apple Silicon.
+                Download the arm64/aarch64 build of your distro instead.
+                """)
+        case .unknown:
+            fputs("warning: could not determine ISO architecture; proceeding anyway.\n", stderr)
+        }
     }
 }

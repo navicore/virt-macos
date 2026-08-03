@@ -19,20 +19,27 @@ struct Start: ParsableCommand {
             throw ValidationError("VM '\(name)' does not exist.")
         }
 
-        // Check if already running
-        if FileManager.default.fileExists(atPath: dir.pidURL.path) {
-            let pidString = try String(contentsOf: dir.pidURL, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
-            if let pid = Int32(pidString), kill(pid, 0) == 0 {
-                throw ValidationError("VM '\(name)' is already running (PID \(pid)).")
-            }
-            try? FileManager.default.removeItem(at: dir.pidURL)
-        }
+        // Held for the life of the process; released by the kernel on death.
+        let lock = try VMLock.acquire(dir: dir)
+        defer { lock.release() }
 
         let config = try VMConfig.load(from: dir.configURL)
 
         fputs("Starting VM '\(name)'...\n", stderr)
         fputs("  CPUs: \(config.cpus), Memory: \(config.memoryMB) MB\n", stderr)
-        fputs("  Console attached (hvc0). Use 'virt stop \(name)' to shut down.\n", stderr)
+        if config.networkMode == "bridge" {
+            fputs("  Network: bridge\(config.bridgeInterface.map { " (\($0))" } ?? "") — the VM is directly on your LAN\n", stderr)
+        }
+        if dir.hasKernelBoot {
+            fputs("  Boot: direct kernel (console=hvc0)\n", stderr)
+        } else {
+            if dir.hasPartialKernelBoot {
+                fputs("  warning: kernel and initrd must both be present; falling back to EFI.\n", stderr)
+            }
+            fputs("  Boot: EFI/GRUB (silent until the guest configures console=hvc0 —\n", stderr)
+            fputs("        or run 'virt kernel-import \(name) --from <dir>' for direct boot)\n", stderr)
+        }
+        fputs("  Console attached. Use 'virt stop \(name)' to shut down.\n", stderr)
 
         if let share = share {
             fputs("  Shared folder: \(share) (mount with: mount -t virtiofs share /mnt)\n", stderr)

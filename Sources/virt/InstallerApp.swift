@@ -7,6 +7,8 @@ class InstallerApp: NSObject, NSApplicationDelegate, VZVirtualMachineDelegate, N
     private let vmInstance: VMInstance
     private var vm: VZVirtualMachine?
     private var window: NSWindow?
+    private var forceClose = false
+    private var closeTimer: Timer?
 
     init(vmInstance: VMInstance) {
         self.vmInstance = vmInstance
@@ -69,15 +71,43 @@ class InstallerApp: NSObject, NSApplicationDelegate, VZVirtualMachineDelegate, N
 
     // MARK: - NSWindowDelegate
 
-    func windowWillClose(_ notification: Notification) {
-        if let vm = vm, vm.state == .running || vm.state == .starting {
-            vmInstance.requestShutdown()
-            // Give it a moment, then terminate
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                NSApplication.shared.terminate(nil)
+    /// Veto window close while the guest is running; request a graceful
+    /// shutdown and close only once the guest has stopped (15s cap, then
+    /// forced with a warning). Closing the window mid-write is a power cut.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard let vm = vm, !forceClose else { return true }
+        switch vm.state {
+        case .stopped, .error:
+            return true
+        default:
+            break
+        }
+        vmInstance.requestShutdown()
+        startCloseMonitor()
+        return false
+    }
+
+    private func startCloseMonitor() {
+        guard closeTimer == nil else { return }
+        var waited = 0.0
+        closeTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] timer in
+            guard let self = self, let vm = self.vm else {
+                timer.invalidate()
+                return
             }
-        } else {
-            NSApplication.shared.terminate(nil)
+            waited += 0.5
+            self.vmInstance.issueStopIfPossible()
+            if vm.state == .stopped || vm.state == .error {
+                timer.invalidate()
+                self.closeTimer = nil
+                self.window?.close()
+            } else if waited >= 15 {
+                timer.invalidate()
+                self.closeTimer = nil
+                fputs("Guest did not shut down within 15s; forcing off (guest filesystem may be unclean).\n", stderr)
+                self.forceClose = true
+                self.window?.close()
+            }
         }
     }
 

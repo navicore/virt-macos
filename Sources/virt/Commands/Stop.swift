@@ -16,47 +16,63 @@ struct Stop: ParsableCommand {
             throw ValidationError("VM '\(name)' does not exist.")
         }
 
-        guard FileManager.default.fileExists(atPath: dir.pidURL.path) else {
+        // The flock is authoritative: a held lock always means a live virt
+        // process. The PID file only tells us *where* to send the signal,
+        // and is only trusted once we know the lock is held.
+        guard VMLock.isLocked(dir) else {
+            if FileManager.default.fileExists(atPath: dir.pidURL.path) {
+                try? FileManager.default.removeItem(at: dir.pidURL)
+                throw ValidationError("VM '\(name)' is not running (stale PID file removed).")
+            }
             throw ValidationError("VM '\(name)' is not running.")
         }
 
-        let pidString = try String(contentsOf: dir.pidURL, encoding: .utf8)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let pid = Int32(pidString) else {
-            // Corrupt PID file — clean up
-            try? FileManager.default.removeItem(at: dir.pidURL)
-            throw ValidationError("VM '\(name)' has a corrupt PID file. Cleaned up.")
+        guard let pidString = try? String(contentsOf: dir.pidURL, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              let pid = Int32(pidString) else {
+            throw ValidationError("VM '\(name)' is running but its PID file is missing or corrupt. Find the process with: ps aux | grep virt")
         }
 
-        // Check if process is actually running
-        guard kill(pid, 0) == 0 else {
-            // Stale PID file — clean up
-            try? FileManager.default.removeItem(at: dir.pidURL)
-            throw ValidationError("VM '\(name)' is not running (stale PID file removed).")
-        }
-
-        // Send SIGINT for graceful shutdown (matches the signal handler in VMInstance)
         print("Sending shutdown signal to VM '\(name)' (PID \(pid))...")
-        kill(pid, SIGINT)
+        VMLogger.log(dir, "virt stop: SIGINT → pid \(pid)")
+        if kill(pid, SIGINT) != 0 {
+            let err = errno
+            if err == ESRCH {
+                print("VM '\(name)' stopped.")
+                return
+            }
+            throw ValidationError("Failed to signal PID \(pid): \(String(cString: strerror(err)))")
+        }
 
         // Wait up to 15 seconds for the process to exit
         let deadline = Date(timeIntervalSinceNow: 15)
         while Date() < deadline {
             if kill(pid, 0) != 0 {
                 print("VM '\(name)' stopped.")
+                VMLogger.log(dir, "stopped gracefully")
                 return
             }
             Thread.sleep(forTimeInterval: 0.5)
         }
 
-        // Escalate to SIGKILL
+        // Escalate to SIGKILL. The killed process can't restore its terminal
+        // from raw mode, so capture its tty first and repair it after.
         print("VM did not stop gracefully, force killing...")
+        VMLogger.log(dir, "virt stop: SIGKILL → pid \(pid)")
+        let tty = TTYReset.controllingTTY(of: pid)
         kill(pid, SIGKILL)
         Thread.sleep(forTimeInterval: 1.0)
+        if let tty = tty {
+            TTYReset.restoreSane(ttyPath: tty)
+        }
 
         if kill(pid, 0) != 0 {
             try? FileManager.default.removeItem(at: dir.pidURL)
             print("VM '\(name)' killed.")
+            VMLogger.log(dir, "force killed by virt stop")
+            if tty != nil {
+                fputs("Terminal restored (the VM held it in raw mode when killed).\n", stderr)
+            }
         } else {
             throw ValidationError("Failed to stop VM '\(name)' (PID \(pid)).")
         }

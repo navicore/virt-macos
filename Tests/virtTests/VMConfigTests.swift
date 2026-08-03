@@ -38,6 +38,65 @@ final class VMConfigTests: XCTestCase {
         XCTAssertTrue(cpusRange.lowerBound < nameRange.lowerBound)
     }
 
+    func testMACRoundTrip() throws {
+        let config = VMConfig(name: "test", cpus: 4, memoryMB: 2048, diskSizeGB: 20,
+                              macAddress: "02:11:22:33:44:55")
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let url = tempDir.appendingPathComponent("config.json")
+        try config.write(to: url)
+        let loaded = try VMConfig.load(from: url)
+
+        XCTAssertEqual(loaded.macAddress, "02:11:22:33:44:55")
+    }
+
+    func testLegacyConfigWithoutMACDecodes() throws {
+        // Configs written before MACs were persisted must still load
+        let legacy = """
+        {"cpus":2,"diskSizeGB":10,"memoryMB":2048,"name":"old"}
+        """
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let url = tempDir.appendingPathComponent("config.json")
+        try legacy.write(to: url, atomically: true, encoding: .utf8)
+        let loaded = try VMConfig.load(from: url)
+
+        XCTAssertEqual(loaded.name, "old")
+        XCTAssertNil(loaded.macAddress)
+    }
+
+    func testNetworkModeRoundTrip() throws {
+        let config = VMConfig(name: "test", cpus: 2, memoryMB: 2048, diskSizeGB: 20,
+                              macAddress: "02:11:22:33:44:55", networkMode: "bridge", bridgeInterface: "en0")
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let url = tempDir.appendingPathComponent("config.json")
+        try config.write(to: url)
+        let loaded = try VMConfig.load(from: url)
+
+        XCTAssertEqual(loaded.networkMode, "bridge")
+        XCTAssertEqual(loaded.bridgeInterface, "en0")
+    }
+
+    func testWithMACPreservesOtherFields() {
+        let config = VMConfig(name: "vm", cpus: 2, memoryMB: 1024, diskSizeGB: 8)
+        let updated = config.withMAC("02:aa:bb:cc:dd:ee")
+        XCTAssertEqual(updated.macAddress, "02:aa:bb:cc:dd:ee")
+        XCTAssertEqual(updated.name, "vm")
+        XCTAssertEqual(updated.cpus, 2)
+        XCTAssertEqual(updated.memoryMB, 1024)
+        XCTAssertEqual(updated.diskSizeGB, 8)
+    }
+
     func testLoadCorruptFileThrows() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)

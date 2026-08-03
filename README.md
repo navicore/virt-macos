@@ -5,7 +5,8 @@ A CLI tool for managing Linux VMs on macOS using Apple's Virtualization.framewor
 ## Requirements
 
 - macOS 13+ on Apple Silicon
-- ARM64 Linux ISOs (no x86 emulation)
+- ARM64 Linux ISOs only (aarch64; no x86 emulation). `virt install` checks
+  the ISO and rejects x86 images up front instead of showing a black window.
 
 ## Build
 
@@ -56,13 +57,19 @@ During the Debian installer:
 - Skip the network mirror step if DNS isn't working (see Troubleshooting)
 - Let GRUB install to the EFI system partition
 
-After install, boot the VM with the GUI to configure headless console:
+(If you plan to use direct kernel boot, the GRUB `console=hvc0` step below
+is unnecessary — the kernel command line is set by the host.)
+
+After install, boot the VM once more with the GUI:
 
 ```
 virt install myvm
 ```
 
-Log in as root and add `console=hvc0` to every `linux` line in `/boot/grub/grub.cfg`:
+**Ubuntu 26.04+ and other current distros enable the hvc0 console
+automatically** — skip straight to `virt start`. On older distros (or if
+`virt start` shows no login prompt), log in as root and add `console=hvc0`
+to every `linux` line in `/boot/grub/grub.cfg`:
 
 ```
 nano /boot/grub/grub.cfg
@@ -82,6 +89,35 @@ virt start myvm
 
 EFI boots silently (~5s), then the Linux console appears in your terminal.
 Use `virt stop myvm` from another terminal to shut down.
+
+### Direct kernel boot (recommended)
+
+Skip EFI/GRUB entirely for daily use: boot the guest kernel directly.
+Console output starts in ~1s and no GRUB configuration is needed.
+
+Copy the kernel out of the guest during a GUI session (Debian/Ubuntu
+provide stable `/vmlinuz` and `/initrd.img` symlinks):
+
+```
+virt install myvm --share ~/vm-share
+# inside the guest:
+mkdir -p /mnt/share
+mount -t virtiofs share /mnt/share
+cp -L /vmlinuz /initrd.img /mnt/share/
+```
+
+Then on the host:
+
+```
+virt kernel-import myvm --from ~/vm-share
+```
+
+`virt start` detects the kernel and boots it directly. Compressed kernels
+(gzip/zboot — most distro kernels) are decompressed automatically at
+import. If your root filesystem is not on `/dev/vda2`, pass `--root`
+(check with `lsblk` in the guest).
+
+After a kernel upgrade in the guest, repeat the copy + import.
 
 ### Shared folders
 
@@ -149,7 +185,52 @@ virt list              # show all VMs and status
 virt stop myvm         # graceful shutdown, then force kill
 virt delete myvm       # remove VM (prompts for confirmation)
 virt delete myvm --force
+virt doctor            # diagnose host setup (entitlement, disk, DNS, VMs)
 ```
+
+## Networking
+
+Each VM gets a stable MAC address at create time, so its NAT IP is usually
+stable across reboots — SSH config and `known_hosts` entries keep working.
+
+`virt create --network bridge` puts the VM directly on your LAN (own IP
+from your router) instead of behind Apple's NAT. **Requires virt to be
+signed with a paid Developer account** — `com.apple.vm.networking` is a
+restricted entitlement, and ad-hoc signed binaries are killed at launch.
+Bridge mode fixes the NAT MTU problem below structurally.
+
+### NAT mode: TLS works to some sites, stalls on others
+
+Symptom: apt and SSH work, but Firefox/HTTPS stalls on some sites
+("Performing TLS handshake" forever) while others load fine.
+
+Cause (fully packet-captured, see docs/design/006): Apple's NAT strips the
+DF bit from guest packets. On internet paths with a low-MTU hop
+(PPPoE/tunnels — common on home ISPs), full-size packets get fragmented
+instead of cleanly rejected; fragments are lost, and the guest can never
+learn the path MTU. Post-quantum TLS (ML-KEM, default in 2026-era distros)
+makes every ClientHello big enough to trigger this.
+
+Fix in the guest (NAT mode): lower the interface MTU.
+
+```
+# immediate, temporary:
+sudo ip link set dev enp0s1 mtu 1400
+
+# persistent (Ubuntu desktop / NetworkManager):
+nmcli con show            # find the connection name
+sudo nmcli con mod "Wired connection 1" 802-3-ethernet.mtu 1400
+sudo nmcli con up "Wired connection 1"
+```
+
+## Debugging
+
+Every VM logs lifecycle events (start, stop, failures, shutdown requests)
+to `~/.virt/vms/<name>/vm.log`. If a boot misbehaves, look there first.
+
+If the guest never shuts down and `virt stop` has to force-kill it, stop
+also repairs the terminal the console was attached to (raw mode would
+otherwise leave it without echo).
 
 ## Troubleshooting
 
@@ -180,10 +261,11 @@ AdGuard Home, Pi-hole.
 
 ### No console output from `virt start`
 
-The guest kernel must be configured to use `console=hvc0`. After installing
-the OS with `virt install`, boot the GUI again (`virt install myvm` without
-`--iso`), log in, and add `console=hvc0` to every `linux` line in
-`/boot/grub/grub.cfg`.
+With EFI boot, the guest kernel must be configured to use `console=hvc0`.
+The recommended fix is direct kernel boot (`virt kernel-import`), which
+sets the console from the host. Alternatively, boot the GUI
+(`virt install myvm` without `--iso`), log in, and add `console=hvc0` to
+every `linux` line in `/boot/grub/grub.cfg`.
 
 ### Ctrl-C doesn't work in headless mode
 

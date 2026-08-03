@@ -19,13 +19,14 @@ struct Delete: ParsableCommand {
             throw ValidationError("VM '\(name)' does not exist.")
         }
 
-        // Refuse to delete a running VM
-        if FileManager.default.fileExists(atPath: dir.pidURL.path),
-           let pidString = try? String(contentsOf: dir.pidURL, encoding: .utf8)
-               .trimmingCharacters(in: .whitespacesAndNewlines),
-           let pid = Int32(pidString),
-           kill(pid, 0) == 0 {
-            throw ValidationError("VM '\(name)' is running (PID \(pid)). Stop it first.")
+        // Refuse to delete a running VM (lock is authoritative, not the PID file)
+        if VMLock.isLocked(dir) {
+            var detail = ""
+            if let pid = try? String(contentsOf: dir.pidURL, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines), !pid.isEmpty {
+                detail = " (PID \(pid))"
+            }
+            throw ValidationError("VM '\(name)' is running\(detail). Stop it first.")
         }
 
         if !force {

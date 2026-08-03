@@ -19,6 +19,12 @@ struct Create: ParsableCommand {
     @Option(help: "Memory in MB")
     var memory: Int = 2048
 
+    @Option(help: "Network mode: nat (default) or bridge (VM sits directly on the LAN)")
+    var network: String = "nat"
+
+    @Option(help: "Host interface for bridge mode (default: primary interface)")
+    var bridgeInterface: String? = nil
+
     func validate() throws {
         guard cpus >= 1 else {
             throw ValidationError("--cpus must be at least 1")
@@ -29,6 +35,12 @@ struct Create: ParsableCommand {
         guard disk >= 1 else {
             throw ValidationError("--disk must be at least 1 GB")
         }
+        guard network == "nat" || network == "bridge" else {
+            throw ValidationError("--network must be 'nat' or 'bridge'")
+        }
+        if bridgeInterface != nil && network != "bridge" {
+            throw ValidationError("--bridge-interface requires --network bridge")
+        }
     }
 
     func run() throws {
@@ -38,15 +50,23 @@ struct Create: ParsableCommand {
             throw ValidationError("VM '\(name)' already exists.")
         }
 
+        try checkFreeDiskSpace()
+
+        // Stable MAC so the guest keeps its network identity
+        // (and DHCP lease) across reboots
+        let mac = VZMACAddress.randomLocallyAdministered().string
+
         do {
             try dir.create()
 
-            // Write config
             let config = VMConfig(
                 name: name,
                 cpus: cpus,
                 memoryMB: memory,
-                diskSizeGB: disk
+                diskSizeGB: disk,
+                macAddress: mac,
+                networkMode: network,
+                bridgeInterface: bridgeInterface
             )
             try config.write(to: dir.configURL)
 
@@ -68,6 +88,22 @@ struct Create: ParsableCommand {
         print("  CPUs:   \(cpus)")
         print("  Memory: \(memory) MB")
         print("  Disk:   \(disk) GB")
+        print("  MAC:    \(mac)")
+        print("  Net:    \(network == "bridge" ? "bridge\(bridgeInterface.map { " (\($0))" } ?? "")" : "nat")")
         print("  Path:   \(dir.rootURL.path)")
+    }
+
+    private func checkFreeDiskSpace() throws {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        guard let values = try? home.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]),
+              let available = values.volumeAvailableCapacityForImportantUsage else { return }
+        let requested = Int64(disk) * 1_073_741_824
+        guard available >= 1_073_741_824 else {
+            throw ValidationError("Less than 1 GB of free disk space.")
+        }
+        if available < requested {
+            let freeGB = Double(available) / 1_073_741_824
+            fputs(String(format: "warning: %.1f GB free — less than the %d GB disk (sparse image, but guest writes will fail when the host fills up).\n", freeGB, disk), stderr)
+        }
     }
 }
