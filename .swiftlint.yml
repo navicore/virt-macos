@@ -1,0 +1,12 @@
+excluded:
+  - .build
+
+# Domain terms like vm, fd, fm are fine at 2 chars
+identifier_name:
+  min_length:
+    warning: 2
+    error: 2
+
+# Match swift-format, which adds trailing commas to multiline collections
+trailing_comma:
+  mandatory_comma: true

@@ -11,15 +11,20 @@ A CLI tool for managing Linux VMs on macOS using Apple's Virtualization.framewor
 ## Build
 
 ```
-make
+just dev
 ```
 
-This runs `swift build` and signs the binary with the required virtualization entitlement.
+This runs `swift build` and signs the binary with the required virtualization
+entitlement. `just build` makes a release build.
+
+Requires [just](https://just.systems) (`brew install just`). Run `just ci`
+before pushing — it checks formatting (`swift format`), lints
+(`swiftlint --strict`), runs the tests, and builds release.
 
 ## Install
 
 ```
-sudo make install
+sudo just install
 ```
 
 Builds a release binary and installs to `/usr/local/bin`. Customize with `PREFIX=~/.local`.

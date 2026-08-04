@@ -2,49 +2,51 @@ import ArgumentParser
 import Foundation
 
 struct List: ParsableCommand {
-    static let configuration = CommandConfiguration(
-        abstract: "List all VMs and their status"
-    )
+  static let configuration = CommandConfiguration(
+    abstract: "List all VMs and their status"
+  )
 
-    func run() throws {
-        let vms = try VMDirectory.allVMs()
+  func run() throws {
+    let vms = try VMDirectory.allVMs()
 
-        guard !vms.isEmpty else {
-            print("No VMs found.")
-            return
-        }
-
-        let nameWidth = max(vms.map(\.name.count).max() ?? 4, 4)
-
-        print("\("NAME".padding(toLength: nameWidth, withPad: " ", startingAt: 0))  CPUS   MEMORY  STATUS")
-        print(String(repeating: "-", count: nameWidth + 35))
-
-        for dir in vms.sorted(by: { $0.name < $1.name }) {
-            guard FileManager.default.fileExists(atPath: dir.configURL.path) else {
-                continue
-            }
-
-            let config: VMConfig
-            do {
-                config = try VMConfig.load(from: dir.configURL)
-            } catch {
-                let namePadded = dir.name.padding(toLength: nameWidth, withPad: " ", startingAt: 0)
-                print("\(namePadded)  -     -        (corrupt config)")
-                continue
-            }
-            let status = vmStatus(dir: dir)
-            let namePadded = config.name.padding(toLength: nameWidth, withPad: " ", startingAt: 0)
-
-            print("\(namePadded)  \(String(config.cpus).padding(toLength: 4, withPad: " ", startingAt: 0))  \(String(config.memoryMB).padding(toLength: 5, withPad: " ", startingAt: 0)) MB  \(status)")
-        }
+    guard !vms.isEmpty else {
+      print("No VMs found.")
+      return
     }
 
-    private func vmStatus(dir: VMDirectory) -> String {
-        guard VMLock.isLocked(dir) else { return "stopped" }
-        if let pid = try? String(contentsOf: dir.pidURL, encoding: .utf8)
-            .trimmingCharacters(in: .whitespacesAndNewlines), !pid.isEmpty {
-        return "running (PID \(pid))"
-        }
-        return "running"
+    let nameWidth = max(vms.map(\.name.count).max() ?? 4, 4)
+
+    print(
+      "\("NAME".padding(toLength: nameWidth, withPad: " ", startingAt: 0))  CPUS   MEMORY  STATUS")
+    print(String(repeating: "-", count: nameWidth + 35))
+
+    for dir in vms.sorted(by: { $0.name < $1.name }) {
+      guard FileManager.default.fileExists(atPath: dir.configURL.path) else {
+        continue
+      }
+
+      let config: VMConfig
+      do {
+        config = try VMConfig.load(from: dir.configURL)
+      } catch {
+        let namePadded = dir.name.padding(toLength: nameWidth, withPad: " ", startingAt: 0)
+        print("\(namePadded)  -     -        (corrupt config)")
+        continue
+      }
+      let status = vmStatus(dir: dir)
+      let namePadded = config.name.padding(toLength: nameWidth, withPad: " ", startingAt: 0)
+      let cpusPadded = String(config.cpus).padding(toLength: 4, withPad: " ", startingAt: 0)
+      let memoryPadded = String(config.memoryMB).padding(toLength: 5, withPad: " ", startingAt: 0)
+
+      print("\(namePadded)  \(cpusPadded)  \(memoryPadded) MB  \(status)")
     }
+  }
+
+  private func vmStatus(dir: VMDirectory) -> String {
+    guard VMLock.isLocked(dir) else { return "stopped" }
+    let pid = try? String(contentsOf: dir.pidURL, encoding: .utf8)
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let pid = pid, !pid.isEmpty else { return "running" }
+    return "running (PID \(pid))"
+  }
 }
