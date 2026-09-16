@@ -2,277 +2,153 @@ import ArgumentParser
 import Foundation
 import Virtualization
 
-/// Shared VM configuration builder and runtime for both headless and GUI modes.
+/// Shared VM runtime for both headless and GUI modes.
+/// Hardware configuration lives in VMConfiguration.swift;
+/// terminal/PID/signal helpers live in VMInstance+Support.swift.
 final class VMInstance: NSObject, VZVirtualMachineDelegate {
-    let config: VMConfig
-    let dir: VMDirectory
-    let isoPath: String?
-    let sharePath: String?
-    private(set) var virtualMachine: VZVirtualMachine?
-    private var shutdownRequested = false
-    private var shutdownDeadline: Date?
-    private var signalSource: (any DispatchSourceSignal)?
-    private var originalTermios: termios?
+  let config: VMConfig
+  let dir: VMDirectory
+  let isoPath: String?
+  let sharePath: String?
+  var virtualMachine: VZVirtualMachine?
+  var shutdownRequested = false
+  var shutdownDeadline: Date?
+  var stopRequestIssued = false
+  var signalSources: [any DispatchSourceSignal] = []
+  var originalTermios: termios?
 
-    init(config: VMConfig, dir: VMDirectory, isoPath: String?, sharePath: String? = nil) {
-        self.config = config
-        self.dir = dir
-        self.isoPath = isoPath
-        self.sharePath = sharePath
+  init(config: VMConfig, dir: VMDirectory, isoPath: String?, sharePath: String? = nil) {
+    self.config = config
+    self.dir = dir
+    self.isoPath = isoPath
+    self.sharePath = sharePath
+  }
+
+  // MARK: - Headless run (virt start)
+
+  func runHeadless() throws {
+    defer {
+      restoreTerminal()
+      removePIDFile()
+    }
+    let vzConfig = try buildConfiguration(gui: false)
+    try vzConfig.validate()
+
+    let vm = VZVirtualMachine(configuration: vzConfig)
+    vm.delegate = self
+    self.virtualMachine = vm
+
+    try writePIDFile()
+    setupSignalHandlers()
+    VMLogger.log(dir, "starting headless (cpus=\(config.cpus), memory=\(config.memoryMB) MB)")
+
+    var startError: Error?
+    vm.start { result in
+      DispatchQueue.main.async {
+        switch result {
+        case .success:
+          VMLogger.log(self.dir, "started")
+          fputs("VM running. Console output appears once the guest boots.\n", stderr)
+        case .failure(let error):
+          VMLogger.log(self.dir, "start failed: \(error.localizedDescription)")
+          fputs("VM start failed: \(error.localizedDescription)\n", stderr)
+          startError = error
+        }
+      }
     }
 
-    // MARK: - Headless run (virt start)
-
-    func runHeadless() throws {
-        defer {
-            restoreTerminal()
-            removePIDFile()
-        }
-        let vzConfig = try buildConfiguration(gui: false)
-        try vzConfig.validate()
-
-        let vm = VZVirtualMachine(configuration: vzConfig)
-        vm.delegate = self
-        self.virtualMachine = vm
-
-        try writePIDFile()
-        setupSignalHandler()
-
-        var startError: Error?
-        vm.start { result in
-            switch result {
-            case .success:
-                break
-            case .failure(let error):
-                DispatchQueue.main.async {
-                    fputs("VM start failed: \(error.localizedDescription)\n", stderr)
-                    startError = error
-                }
+    while true {
+      RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.25))
+      if startError != nil { break }
+      if vm.state == .stopped || vm.state == .error { break }
+      if shutdownRequested {
+        issueStopIfPossible()
+        if let deadline = shutdownDeadline, Date() > deadline {
+          fputs("Force stopping VM...\n", stderr)
+          VMLogger.log(dir, "force stopping — guest did not shut down within 10s")
+          vm.stop { error in
+            if let error = error {
+              fputs("Force stop failed: \(error.localizedDescription)\n", stderr)
             }
+          }
+          RunLoop.main.run(until: Date(timeIntervalSinceNow: 1.0))
+          break
         }
+      }
+    }
 
-        while !shutdownRequested {
-            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.25))
-            if startError != nil || vm.state == .stopped || vm.state == .error {
-                break
-            }
+    if let startError = startError {
+      throw startError
+    }
+  }
+
+  // MARK: - GUI run (virt install)
+
+  func startVM(_ vm: VZVirtualMachine) {
+    self.virtualMachine = vm
+    try? writePIDFile()
+    VMLogger.log(dir, "starting GUI (iso=\(isoPath ?? "none"))")
+
+    vm.start { result in
+      DispatchQueue.main.async {
+        switch result {
+        case .success:
+          VMLogger.log(self.dir, "started")
+        case .failure(let error):
+          VMLogger.log(self.dir, "start failed: \(error.localizedDescription)")
+          fputs("VM start failed: \(error.localizedDescription)\n", stderr)
+          self.cleanup()
+          exit(1)
         }
-
-        if let deadline = shutdownDeadline {
-            while vm.state != .stopped && Date() < deadline {
-                RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.25))
-            }
-            if vm.state != .stopped {
-                fputs("Force stopping VM...\n", stderr)
-                vm.stop { error in
-                    if let error = error {
-                        fputs("Force stop failed: \(error.localizedDescription)\n", stderr)
-                    }
-                }
-                RunLoop.main.run(until: Date(timeIntervalSinceNow: 1.0))
-            }
-        }
-
+      }
     }
+  }
 
-    // MARK: - GUI install (virt install)
+  func cleanup() {
+    removePIDFile()
+    VMLogger.log(dir, "session ended")
+  }
 
-    func buildGUIConfiguration() throws -> VZVirtualMachineConfiguration {
-        let vzConfig = try buildConfiguration(gui: true)
-        try vzConfig.validate()
-        return vzConfig
+  // MARK: - Shutdown
+
+  /// Record shutdown intent. The ACPI request is issued by
+  /// `issueStopIfPossible()` once the VM can accept it — during early
+  /// boot `canRequestStop` is false, and issuing immediately would just
+  /// drop the request.
+  func requestShutdown() {
+    guard !shutdownRequested else { return }
+    shutdownRequested = true
+    shutdownDeadline = Date(timeIntervalSinceNow: 10)
+    VMLogger.log(dir, "shutdown requested")
+    fputs("Shutdown requested, waiting up to 10 seconds...\n", stderr)
+    issueStopIfPossible()
+  }
+
+  /// Issue the ACPI shutdown request if the VM is ready. Idempotent.
+  func issueStopIfPossible() {
+    guard shutdownRequested, !stopRequestIssued,
+      let vm = virtualMachine, vm.canRequestStop
+    else { return }
+    stopRequestIssued = true
+    do {
+      try vm.requestStop()
+    } catch {
+      fputs("Failed to request stop: \(error.localizedDescription)\n", stderr)
+      VMLogger.log(dir, "requestStop failed: \(error.localizedDescription)")
     }
+  }
 
-    func startVM(_ vm: VZVirtualMachine) {
-        self.virtualMachine = vm
-        try? writePIDFile()
+  // MARK: - VZVirtualMachineDelegate
 
-        vm.start { result in
-            switch result {
-            case .success:
-                break
-            case .failure(let error):
-                DispatchQueue.main.async {
-                    fputs("VM start failed: \(error.localizedDescription)\n", stderr)
-                }
-            }
-        }
-    }
+  func virtualMachine(_ virtualMachine: VZVirtualMachine, didStopWithError error: Error) {
+    fputs("VM stopped with error: \(error.localizedDescription)\n", stderr)
+    VMLogger.log(dir, "stopped with error: \(error.localizedDescription)")
+    shutdownRequested = true
+  }
 
-    func cleanup() {
-        removePIDFile()
-    }
-
-    // MARK: - Shutdown
-
-    func requestShutdown() {
-        guard let vm = virtualMachine, !shutdownRequested else { return }
-        shutdownRequested = true
-
-        if vm.canRequestStop {
-            do {
-                try vm.requestStop()
-                fputs("Shutdown requested, waiting up to 10 seconds...\n", stderr)
-            } catch {
-                fputs("Failed to request stop: \(error.localizedDescription)\n", stderr)
-            }
-            shutdownDeadline = Date(timeIntervalSinceNow: 10)
-        }
-    }
-
-    // MARK: - VZVirtualMachineDelegate
-
-    func virtualMachine(_ virtualMachine: VZVirtualMachine, didStopWithError error: Error) {
-        fputs("VM stopped with error: \(error.localizedDescription)\n", stderr)
-        shutdownRequested = true
-    }
-
-    func guestDidStop(_ virtualMachine: VZVirtualMachine) {
-        fputs("VM stopped.\n", stderr)
-        shutdownRequested = true
-    }
-
-    // MARK: - Configuration
-
-    private func buildConfiguration(gui: Bool) throws -> VZVirtualMachineConfiguration {
-        let vzConfig = VZVirtualMachineConfiguration()
-
-        vzConfig.cpuCount = config.cpus
-        vzConfig.memorySize = UInt64(config.memoryMB) * 1024 * 1024
-
-        // EFI boot loader with per-VM NVRAM
-        let bootLoader = VZEFIBootLoader()
-        if FileManager.default.fileExists(atPath: dir.nvramURL.path) {
-            bootLoader.variableStore = VZEFIVariableStore(url: dir.nvramURL)
-        } else {
-            bootLoader.variableStore = try VZEFIVariableStore(creatingVariableStoreAt: dir.nvramURL)
-        }
-        vzConfig.bootLoader = bootLoader
-
-        // Storage devices — ISO first for boot priority
-        var storageDevices: [VZStorageDeviceConfiguration] = []
-
-        if let isoPath = isoPath {
-            let isoURL = URL(fileURLWithPath: isoPath)
-            guard FileManager.default.fileExists(atPath: isoURL.path) else {
-                throw ValidationError("ISO file not found: \(isoPath)")
-            }
-            let isoAttachment = try VZDiskImageStorageDeviceAttachment(
-                url: isoURL,
-                readOnly: true
-            )
-            storageDevices.append(VZUSBMassStorageDeviceConfiguration(attachment: isoAttachment))
-        }
-
-        let diskAttachment = try VZDiskImageStorageDeviceAttachment(
-            url: dir.diskURL,
-            readOnly: false
-        )
-        storageDevices.append(VZVirtioBlockDeviceConfiguration(attachment: diskAttachment))
-        vzConfig.storageDevices = storageDevices
-
-        // NAT networking
-        let networkDevice = VZVirtioNetworkDeviceConfiguration()
-        networkDevice.attachment = VZNATNetworkDeviceAttachment()
-        vzConfig.networkDevices = [networkDevice]
-
-        // Entropy
-        vzConfig.entropyDevices = [VZVirtioEntropyDeviceConfiguration()]
-
-        // Shared folder (virtiofs)
-        if let sharePath = sharePath {
-            let shareURL = URL(fileURLWithPath: sharePath)
-            var isDir: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: shareURL.path, isDirectory: &isDir), isDir.boolValue else {
-                throw ValidationError("Shared path is not a directory: \(sharePath)")
-            }
-            let sharedDir = VZSharedDirectory(url: shareURL, readOnly: false)
-            let share = VZSingleDirectoryShare(directory: sharedDir)
-            let fsDevice = VZVirtioFileSystemDeviceConfiguration(tag: "share")
-            fsDevice.share = share
-            vzConfig.directorySharingDevices = [fsDevice]
-        }
-
-        // Framebuffer — always present. EFI and GRUB need it to function.
-        // In GUI mode it's displayed in a window; headless it renders to nothing.
-        let graphics = VZVirtioGraphicsDeviceConfiguration()
-        graphics.scanouts = [VZVirtioGraphicsScanoutConfiguration(
-            widthInPixels: 1280,
-            heightInPixels: 800
-        )]
-        vzConfig.graphicsDevices = [graphics]
-
-        if gui {
-            vzConfig.keyboards = [VZUSBKeyboardConfiguration()]
-            vzConfig.pointingDevices = [VZUSBScreenCoordinatePointingDeviceConfiguration()]
-
-            // Clipboard sharing via SPICE agent (macOS 14+)
-            if #available(macOS 14.0, *) {
-                let clipboardDevice = VZVirtioConsoleDeviceConfiguration()
-                let spicePort = VZVirtioConsolePortConfiguration()
-                spicePort.name = VZSpiceAgentPortAttachment.spiceAgentPortName
-                spicePort.attachment = VZSpiceAgentPortAttachment()
-                spicePort.isConsole = false
-                clipboardDevice.ports[0] = spicePort
-                vzConfig.consoleDevices = [clipboardDevice]
-            }
-        }
-
-        if !gui {
-            // Headless: wire serial console to stdin/stdout
-            let serialAttachment = VZFileHandleSerialPortAttachment(
-                fileHandleForReading: FileHandle.standardInput,
-                fileHandleForWriting: FileHandle.standardOutput
-            )
-            let serialPort = VZVirtioConsoleDeviceSerialPortConfiguration()
-            serialPort.attachment = serialAttachment
-            vzConfig.serialPorts = [serialPort]
-
-            if isatty(STDIN_FILENO) != 0 {
-                enableRawMode()
-            }
-        }
-
-        return vzConfig
-    }
-
-    // MARK: - Terminal
-
-    private func enableRawMode() {
-        var current = termios()
-        tcgetattr(STDIN_FILENO, &current)
-        self.originalTermios = current
-        var rawTermios = current
-        cfmakeraw(&rawTermios)
-        tcsetattr(STDIN_FILENO, TCSANOW, &rawTermios)
-    }
-
-    private func restoreTerminal() {
-        guard var t = originalTermios else { return }
-        tcsetattr(STDIN_FILENO, TCSANOW, &t)
-        originalTermios = nil
-    }
-
-    // MARK: - PID file
-
-    private func writePIDFile() throws {
-        let pid = ProcessInfo.processInfo.processIdentifier
-        try "\(pid)".write(to: dir.pidURL, atomically: true, encoding: .utf8)
-    }
-
-    private func removePIDFile() {
-        try? FileManager.default.removeItem(at: dir.pidURL)
-    }
-
-    // MARK: - Signal handling
-
-    private func setupSignalHandler() {
-        signal(SIGINT, SIG_IGN)
-        let source = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
-        source.setEventHandler { [weak self] in
-            self?.requestShutdown()
-        }
-        source.resume()
-        self.signalSource = source
-    }
+  func guestDidStop(_ virtualMachine: VZVirtualMachine) {
+    fputs("VM stopped.\n", stderr)
+    VMLogger.log(dir, "guest stopped")
+    shutdownRequested = true
+  }
 }
