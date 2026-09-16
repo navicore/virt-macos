@@ -8,38 +8,53 @@ struct List: ParsableCommand {
 
   func run() throws {
     let vms = try VMDirectory.allVMs()
+      .filter { FileManager.default.fileExists(atPath: $0.configURL.path) }
 
     guard !vms.isEmpty else {
       print("No VMs found.")
       return
     }
 
-    let nameWidth = max(vms.map(\.name.count).max() ?? 4, 4)
+    let headers = ["NAME", "CPUS", "MEMORY", "DISK", "STATUS"]
+    let rightAlign = [false, true, true, true, false]
 
-    print(
-      "\("NAME".padding(toLength: nameWidth, withPad: " ", startingAt: 0))  CPUS   MEMORY  STATUS")
-    print(String(repeating: "-", count: nameWidth + 35))
-
+    var rows: [[String]] = []
     for dir in vms.sorted(by: { $0.name < $1.name }) {
-      guard FileManager.default.fileExists(atPath: dir.configURL.path) else {
-        continue
+      if let config = try? VMConfig.load(from: dir.configURL) {
+        rows.append([
+          config.name,
+          String(config.cpus),
+          "\(config.memoryMB) MB",
+          "\(config.diskSizeGB) GB",
+          vmStatus(dir: dir),
+        ])
+      } else {
+        rows.append([dir.name, "-", "-", "-", "(corrupt config)"])
       }
-
-      let config: VMConfig
-      do {
-        config = try VMConfig.load(from: dir.configURL)
-      } catch {
-        let namePadded = dir.name.padding(toLength: nameWidth, withPad: " ", startingAt: 0)
-        print("\(namePadded)  -     -        (corrupt config)")
-        continue
-      }
-      let status = vmStatus(dir: dir)
-      let namePadded = config.name.padding(toLength: nameWidth, withPad: " ", startingAt: 0)
-      let cpusPadded = String(config.cpus).padding(toLength: 4, withPad: " ", startingAt: 0)
-      let memoryPadded = String(config.memoryMB).padding(toLength: 5, withPad: " ", startingAt: 0)
-
-      print("\(namePadded)  \(cpusPadded)  \(memoryPadded) MB  \(status)")
     }
+
+    let widths = headers.indices.map { column in
+      max(headers[column].count, rows.map { $0[column].count }.max() ?? 0)
+    }
+
+    func line(_ cells: [String]) -> String {
+      cells.indices.map { index in
+        index == cells.count - 1
+          ? cells[index]
+          : pad(cells[index], toWidth: widths[index], rightAlign: rightAlign[index])
+      }.joined(separator: "  ")
+    }
+
+    print(line(headers))
+    print(String(repeating: "-", count: line(headers).count))
+    for row in rows {
+      print(line(row))
+    }
+  }
+
+  private func pad(_ value: String, toWidth width: Int, rightAlign: Bool) -> String {
+    let padding = String(repeating: " ", count: max(0, width - value.count))
+    return rightAlign ? padding + value : value + padding
   }
 
   private func vmStatus(dir: VMDirectory) -> String {

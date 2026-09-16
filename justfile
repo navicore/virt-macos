@@ -28,8 +28,12 @@ fmt-check:
 lint:
     swiftlint lint --strict
 
-# Install signed release binary to PREFIX/bin
-install: build
+# Install signed release binary to PREFIX/bin.
+# Deliberately does NOT depend on `build` so `sudo just install` never
+# compiles as root (which would leave root-owned files in .build/).
+# Run `just build` first, like the classic `make; sudo make install` split.
+install:
+    @test -f .build/release/virt || { echo "error: .build/release/virt missing — run 'just build' first" >&2; exit 1; }
     install -d {{prefix}}/bin
     install .build/release/virt {{prefix}}/bin/virt
     codesign --entitlements virt.entitlements --force -s - {{prefix}}/bin/virt

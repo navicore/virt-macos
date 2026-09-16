@@ -24,10 +24,16 @@ before pushing — it checks formatting (`swift format`), lints
 ## Install
 
 ```
-sudo just install
+just build
+just install
 ```
 
-Builds a release binary and installs to `/usr/local/bin`. Customize with `PREFIX=~/.local`.
+Installs to `/usr/local/bin`; customize with `PREFIX=~/.local`. Add `sudo` to
+the install step only if the target isn't user-writable (on stock Apple
+Silicon Macs `/usr/local` is root-owned; if Homebrew's old Intel layout
+chowned `/usr/local/bin` to you, no sudo is needed). Building and installing
+are separate steps on purpose: `sudo just install` never compiles, so no
+root-owned files are left in `.build/`.
 
 ## Shell completions
 
@@ -210,11 +216,15 @@ Symptom: apt and SSH work, but Firefox/HTTPS stalls on some sites
 ("Performing TLS handshake" forever) while others load fine.
 
 Cause (fully packet-captured, see docs/design/006): Apple's NAT strips the
-DF bit from guest packets. On internet paths with a low-MTU hop
-(PPPoE/tunnels — common on home ISPs), full-size packets get fragmented
-instead of cleanly rejected; fragments are lost, and the guest can never
-learn the path MTU. Post-quantum TLS (ML-KEM, default in 2026-era distros)
-makes every ClientHello big enough to trigger this.
+DF bit from guest packets. Any hop with an MTU below 1500 between the
+guest and the internet then fragments the packet instead of cleanly
+rejecting it; fragments are lost, and the guest can never learn the path
+MTU. Post-quantum TLS (ML-KEM, default in 2026-era distros) makes every
+ClientHello big enough to trigger this. Note the low-MTU hop can be the
+**host itself**: check `networksetup -getMTU en0` — a manually clamped
+host interface (e.g. 1472, a leftover PPPoE tweak) fragments every
+guest full-MSS packet right at the Mac. Sites that load fine are typically
+served over QUIC/HTTP3, which probes path MTU instead of trusting DF.
 
 Fix in the guest (NAT mode): lower the interface MTU.
 
