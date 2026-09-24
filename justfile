@@ -19,7 +19,7 @@ build:
 # untouched (mixing the CLT plugin with Xcode's Testing module would be a
 # version-mismatch hazard).
 test-plugin-flag := if shell("test ! -d /Applications/Xcode.app -a -f /Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing/libTestingMacros.dylib && echo yes || echo no") == "yes" {
-  '-Xswiftc -load-resolved-plugin -Xswiftc /Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing/libTestingMacros.dylib\#\#TestingMacros'
+  '-Xswiftc -load-resolved-plugin -Xswiftc /Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing/libTestingMacros.dylib\\#\\#TestingMacros'
 } else {
   ""
 }
