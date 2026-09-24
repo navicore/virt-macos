@@ -45,6 +45,33 @@ final class ISOCheckTests: XCTestCase {
     XCTAssertEqual(ISOCheck.detect(url: url), .unknown)
   }
 
+  /// Regression: a Rocky x86_64 DVD contains the stray string "aa64.efi"
+  /// ~10 GB deep (grub2-efi-aa64 RPM payload text). The detector must
+  /// not let package text flip an x86 image to arm64.
+  func testStrayPackageTextDoesNotFlipVerdict() throws {
+    let padding = String(repeating: "x", count: 1 << 20)
+    let url = try writeTempISO(
+      contents: "BOOTX64.EFI;1 \(padding) grub2-efi-aa64 provides aa64.efi")
+    defer { try? FileManager.default.removeItem(at: url) }
+    XCTAssertEqual(ISOCheck.detect(url: url), .x8664)
+  }
+
+  /// Markers past the scan cap must be ignored — that is what keeps
+  /// detection of a 10 GB DVD fast.
+  func testMarkerBeyondScanLimitIsIgnored() throws {
+    let url = try writeTempISO(contents: "\(String(repeating: "x", count: 64)) BOOTX64.EFI;1")
+    defer { try? FileManager.default.removeItem(at: url) }
+    XCTAssertEqual(ISOCheck.detect(url: url, scanLimit: 16), .unknown)
+  }
+
+  /// Multi-arch media carries both loaders; VZ's EFI picks BOOTAA64.EFI,
+  /// so it counts as arm64.
+  func testMultiArchImageCountsAsARM64() throws {
+    let url = try writeTempISO(contents: "BOOTX64.EFI;1 and BOOTAA64.EFI;1")
+    defer { try? FileManager.default.removeItem(at: url) }
+    XCTAssertEqual(ISOCheck.detect(url: url), .arm64)
+  }
+
   func testMissingFileIsUnknown() {
     let url = URL(fileURLWithPath: "/nonexistent/\(UUID().uuidString).iso")
     XCTAssertEqual(ISOCheck.detect(url: url), .unknown)
