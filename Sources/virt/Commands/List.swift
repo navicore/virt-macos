@@ -15,8 +15,8 @@ struct List: ParsableCommand {
       return
     }
 
-    let headers = ["NAME", "CPUS", "MEMORY", "DISK", "STATUS"]
-    let rightAlign = [false, true, true, true, false]
+    let headers = ["NAME", "CPUS", "MEMORY", "DISK", "STATUS", "DESCRIPTION"]
+    let rightAlign = [false, true, true, true, false, false]
 
     var rows: [[String]] = []
     for dir in vms.sorted(by: { $0.name < $1.name }) {
@@ -27,9 +27,10 @@ struct List: ParsableCommand {
           "\(config.memoryMB) MB",
           "\(config.diskSizeGB) GB",
           vmStatus(dir: dir),
+          truncate(config.description ?? "—", toWidth: 40),
         ])
       } else {
-        rows.append([dir.name, "-", "-", "-", "(corrupt config)"])
+        rows.append([dir.name, "-", "-", "-", "(corrupt config)", "-"])
       }
     }
 
@@ -55,6 +56,13 @@ struct List: ParsableCommand {
   private func pad(_ value: String, toWidth width: Int, rightAlign: Bool) -> String {
     let padding = String(repeating: " ", count: max(0, width - value.count))
     return rightAlign ? padding + value : value + padding
+  }
+
+  /// Descriptions are free text; cap the column so one long string
+  /// can't blow out the table. Em-dash marks pre-description configs.
+  private func truncate(_ value: String, toWidth width: Int) -> String {
+    guard value.count > width else { return value }
+    return String(value.prefix(width - 1)) + "…"
   }
 
   private func vmStatus(dir: VMDirectory) -> String {

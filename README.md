@@ -78,8 +78,13 @@ virt completions fish | source
 ### Create a VM
 
 ```
-virt create myvm --disk 16 --cpus 2 --memory 4096
+virt create milford --description "medium size vm with rocky 10 os" --disk 100 --cpus 4 --memory 8192
 ```
+
+`--description` is required, as are `--memory` (MB) and `--disk` (GB) —
+`--cpus` defaults to 2. Tab completion offers sensible values for memory
+(1024/2048/4096/8192) and disk (10/20/50); any value is accepted.
+Update a description later with `virt set milford --description "..."`.
 
 ### Install an OS from ISO
 
@@ -217,7 +222,8 @@ ssh user@192.168.64.x
 ### Other commands
 
 ```
-virt list              # show all VMs and status
+virt list              # show all VMs, status, and description
+virt set myvm --description "new purpose"
 virt stop myvm         # graceful shutdown, then force kill
 virt delete myvm       # remove VM (prompts for confirmation)
 virt delete myvm --force

@@ -13,6 +13,7 @@ struct Virt: ParsableCommand {
       Stop.self,
       Delete.self,
       List.self,
+      Set.self,
       KernelImport.self,
       Doctor.self,
       Completions.self,
