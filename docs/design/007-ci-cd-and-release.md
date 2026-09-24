@@ -104,7 +104,10 @@ and the CLT ships **swift-testing but not XCTest**. Test targets use
 `import Testing` / `@Test` / `#expect` — SwiftPM then builds a Testing
 entrypoint executable, no `xctest` needed. (virt's tests were migrated
 from XCTest accordingly; the migration also runs green on full-Xcode
-machines like the laptop.)
+machines like the laptop.) Second CLT quirk: the Swift Build backend
+omits the swift-testing macro plugin on CLT-only hosts, so the justfile
+`test` recipe conditionally passes `-Xswiftc -load-resolved-plugin ...`
+(gated on Xcode's absence) — see `test-plugin-flag` in the justfile.
 
 ## C. Release — `.forgejo/workflows/release.yml`
 
