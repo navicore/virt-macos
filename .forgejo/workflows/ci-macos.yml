@@ -1,0 +1,34 @@
+name: CI - macOS
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+# This workflow ONLY calls `just` commands. The justfile is the source
+# of truth for all build/test/lint logic, preventing drift between
+# local development and CI.
+#
+# `runs-on: navicore-macos` targets the self-hosted mac mini host runner
+# on vashon.local (see ../navicore-macos-runner): Xcode CLT (Swift 6.4),
+# swiftlint, and just are pre-installed there; `swift format` ships with
+# the CLT. The CLT version is the toolchain pin — workflows print
+# `swift --version` so every build is traceable to the compiler it used.
+
+jobs:
+  ci-macos:
+    name: CI - macOS arm64
+    runs-on: navicore-macos
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Verify toolchain
+        run: |
+          swift --version
+          swiftlint version
+          just --version
+
+      - name: Run CI checks (just ci)
+        run: just ci
