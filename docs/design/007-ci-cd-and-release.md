@@ -1,7 +1,10 @@
 # Design: CI/CD and tag-driven releases
 
 **Date**: 2026-09-24
-**Status**: Proposed
+**Status**: Implemented — v0.1.0 released 2026-09-24; runner operational
+on vashon.local (`navicore-macos`), CI green on PRs, tag releases verified
+end-to-end. See `../navicore-macos-runner` for runner ops and the
+homelab doc `k8s-vcluster-homelab/docs/08-forgejo-macos-runner.md`.
 
 ## Intent
 
@@ -200,16 +203,16 @@ the pin), and a link to the runner repo.
 
 ## Sequencing
 
-1. ~~Runner project + register the runner~~ — project written
-   (`navicore-macos-runner`); install on vashon.local (UUID/token from
-   the admin runners page), confirm `runs-on: navicore-macos` picks up
-   a job.
-2. `Version.swift` + `--version` wiring (PR — exercises CI once (3) lands;
-   land together).
-3. `ci-macos.yml` (PR).
-4. `release.yml` + `dist` recipe + `PAT` secret (PR), then push `v0.1.0`
-   to validate end-to-end: bump commit on main, release page, artifact,
-   `virt --version` output.
+1. ~~Runner project + register the runner~~ — done; runner live on
+   vashon.local, label `navicore-macos`.
+2. ~~`Version.swift` + `--version` wiring~~ — merged (PR #17).
+3. ~~`ci-macos.yml`~~ — merged; green run on the mini (after the CLT
+   quirks were fixed and Xcode selected as the toolchain).
+4. `release.yml` + `dist` recipe — **merged**; remaining: set the `PAT`
+   repo secret, push `v0.1.0` to validate end-to-end (bump commit on
+   main, release page, artifact, `virt --version` output). Version.swift
+   already reads `0.1.0`, so the first run exercises the
+   "nothing to bump" path and publishes directly.
 5. ~~Homelab doc `08-forgejo-macos-runner.md`~~ — written.
 
 ## Open questions
