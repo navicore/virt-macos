@@ -10,10 +10,11 @@ on:
 # local development and CI.
 #
 # `runs-on: navicore-macos` targets the self-hosted mac mini host runner
-# on vashon.local (see ../navicore-macos-runner): Xcode CLT (Swift 6.4),
-# swiftlint, and just are pre-installed there; `swift format` ships with
-# the CLT. The CLT version is the toolchain pin — workflows print
-# `swift --version` so every build is traceable to the compiler it used.
+# on vashon.local (see ../navicore-macos-runner): Xcode (selected via
+# xcode-select), swiftlint, and just are pre-installed there; `swift format`
+# ships with the toolchain. The Xcode version is the toolchain pin —
+# workflows print `swift --version` so every build is traceable to the
+# compiler it used.
 
 jobs:
   ci-macos:

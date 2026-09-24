@@ -12,13 +12,13 @@ build:
     swift build -c release
     codesign --entitlements virt.entitlements --force -s - .build/release/virt
 
-# CLT-only machines (the CI mini) ship swift-testing's macro plugin but the
+# CLT-selected toolchains ship swift-testing's macro plugin but the
 # Swift Build backend never passes it to the compiler when Testing comes
-# from the CLT layout — full Xcode adds it automatically. Load it explicitly
-# ONLY when Xcode is absent and the CLT plugin exists, so Xcode machines are
-# untouched (mixing the CLT plugin with Xcode's Testing module would be a
-# version-mismatch hazard).
-test-plugin-flag := if shell("test ! -d /Applications/Xcode.app -a -f /Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing/libTestingMacros.dylib && echo yes || echo no") == "yes" {
+# from the CLT layout — a toolchain selected via Xcode.app adds it
+# automatically. Load it explicitly ONLY while the CLT is the selected
+# developer directory (xcode-select -p) and the plugin exists, so
+# Xcode-toolchain machines are untouched.
+test-plugin-flag := if shell("test \"$(xcode-select -p 2>/dev/null)\" = /Library/Developer/CommandLineTools -a -f /Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing/libTestingMacros.dylib && echo yes || echo no") == "yes" {
   '-Xswiftc -load-resolved-plugin -Xswiftc /Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing/libTestingMacros.dylib\\#\\#TestingMacros'
 } else {
   ""
