@@ -99,6 +99,13 @@ No caching initially — mirrors the rust rule of not caching build output
 for test runs, and a full `swift build` is only a few minutes on the mini.
 `Package.resolved` is committed (the Cargo.lock analog).
 
+CLT constraint: the mini has Command Line Tools only (no full Xcode),
+and the CLT ships **swift-testing but not XCTest**. Test targets use
+`import Testing` / `@Test` / `#expect` — SwiftPM then builds a Testing
+entrypoint executable, no `xctest` needed. (virt's tests were migrated
+from XCTest accordingly; the migration also runs green on full-Xcode
+machines like the laptop.)
+
 ## C. Release — `.forgejo/workflows/release.yml`
 
 Trigger `on: push: tags: ['v*']`, `runs-on: navicore-macos`, job guarded

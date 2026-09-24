@@ -1,0 +1,106 @@
+name: Release
+
+# Publishes a signed release binary when a `vX.Y.Z` tag is pushed:
+# stamps the tag version into Version.swift, commits the bump back to
+# main, builds + ad-hoc-codesigns with the virtualization entitlement,
+# packages a tarball, and attaches it to a Forgejo Release via the API.
+#
+# Runs on the same `navicore-macos` runner as CI, so the release binary
+# is built with the exact toolchain CI tests with (the mini's Xcode CLT
+# is the pin — see ../navicore-macos-runner).
+#
+# Required repo secret (Settings -> Actions -> Secrets and Variables):
+#   PAT - Forgejo token with `write:repository`
+#         (pushes the version bump to main + creates the Release)
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: navicore-macos
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout main (PAT lets us push the version bump back)
+        uses: actions/checkout@v6
+        with:
+          token: ${{ secrets.PAT }}
+          ref: main
+
+      - name: Verify toolchain
+        run: |
+          swift --version
+          just --version
+
+      - name: Bump Version.swift from the tag, push to main
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed -i '' "s/static let current = \".*\"/static let current = \"$VERSION\"/" Sources/virt/Version.swift
+          if git diff --quiet; then
+            echo "Version.swift already at $VERSION — nothing to bump"
+            exit 0
+          fi
+          git config user.name "forgejo-actions[bot]"
+          git config user.email "forgejo-actions[bot]@users.noreply.git.navicore.tech"
+          git add Sources/virt/Version.swift
+          git commit -m "chore: bump version to $VERSION"
+          git push origin main
+
+      - name: Build, sign, package
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          just build
+          just dist "$VERSION"
+
+      - name: Smoke test --version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          test "$(.build/release/virt --version)" = "virt $VERSION"
+
+      - name: Publish Forgejo Release
+        env:
+          PAT: ${{ secrets.PAT }}
+        run: |
+          set -eu
+          VERSION="${GITHUB_REF_NAME#v}"
+          ASSET="virt-$VERSION-aarch64-apple-darwin.tar.gz"
+          API="https://git.navicore.tech/api/v1/repos/navicore/virt"
+
+          echo "::group::Find or create the release (re-run safe)"
+          # Reuse the release if it exists (404 -> empty), else create it
+          # against the already-pushed tag.
+          release_id=$(curl -sf -H "Authorization: token $PAT" \
+            "$API/releases/tags/v$VERSION" | jq -r '.id' || true)
+          if [ -z "${release_id:-}" ] || [ "$release_id" = "null" ]; then
+            release_id=$(curl -sS -H "Authorization: token $PAT" \
+              -H 'Content-Type: application/json' \
+              -d "{\"tag_name\":\"v$VERSION\",\"name\":\"virt $VERSION\",\"body\":\"virt $VERSION — manage Linux VMs on macOS. See the README for install.\"}" \
+              "$API/releases" | jq -r '.id')
+            [ -n "$release_id" ] && [ "$release_id" != "null" ] \
+              || { echo "::error::release creation failed"; exit 1; }
+          fi
+          echo "release id: $release_id"
+          echo "::endgroup::"
+
+          echo "::group::Attach artifacts (replace on re-run)"
+          for f in "$ASSET" "$ASSET.sha256"; do
+            curl -sf -H "Authorization: token $PAT" \
+              "$API/releases/$release_id/assets" \
+              | jq -r ".[] | select(.name == \"$f\") | .id" \
+              | while read -r aid; do
+                  curl -sf -X DELETE -H "Authorization: token $PAT" \
+                    "$API/releases/$release_id/assets/$aid" || true
+                done
+            curl -sf -H "Authorization: token $PAT" \
+              -H 'Content-Type: application/octet-stream' \
+              --data-binary "@dist/$f" \
+              "$API/releases/$release_id/assets?name=$f"
+            echo "attached $f"
+          done
+          echo "::endgroup::"
+
+          echo "Released virt $VERSION: https://git.navicore.tech/navicore/virt/releases/tag/v$VERSION"

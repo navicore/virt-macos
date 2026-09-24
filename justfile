@@ -42,6 +42,14 @@ install:
 uninstall:
     rm -f {{prefix}}/bin/virt
 
+# Package the signed release binary into dist/ (used by release.yml).
+# Deliberately does NOT depend on `build` — run `just build` first
+# (same split as install).
+dist VERSION:
+    @install -d dist
+    tar czf dist/virt-{{VERSION}}-aarch64-apple-darwin.tar.gz -C .build/release virt
+    shasum -a 256 dist/virt-{{VERSION}}-aarch64-apple-darwin.tar.gz > dist/virt-{{VERSION}}-aarch64-apple-darwin.tar.gz.sha256
+
 # Remove build artifacts
 clean:
     swift package clean

@@ -35,6 +35,31 @@ chowned `/usr/local/bin` to you, no sudo is needed). Building and installing
 are separate steps on purpose: `sudo just install` never compiles, so no
 root-owned files are left in `.build/`.
 
+## Releases
+
+`virt --version` reports the version. Pushing a `vX.Y.Z` tag triggers
+`.forgejo/workflows/release.yml`: it stamps the tag into
+`Sources/virt/Version.swift`, commits the bump to `main`, builds and
+signs the release binary, and publishes it to the
+[releases page](https://git.navicore.tech/navicore/virt/releases).
+(Requires the repo secret `PAT` — a token with `write:repository`.)
+
+### Install from a release
+
+Download `virt-X.Y.Z-aarch64-apple-darwin.tar.gz` (and its `.sha256`)
+from the releases page, then:
+
+```
+shasum -a 256 -c virt-X.Y.Z-aarch64-apple-darwin.tar.gz.sha256
+tar xzf virt-X.Y.Z-aarch64-apple-darwin.tar.gz
+xattr -d com.apple.quarantine virt   # browser downloads only; curl is unaffected
+install -m 0755 virt /usr/local/bin/virt
+```
+
+The binary ships ad-hoc signed with the virtualization entitlement — no
+re-signing needed. (Bridge networking still requires a paid Developer
+account; see [Networking](#networking).)
+
 ## Shell completions
 
 ```
