@@ -5,6 +5,10 @@ struct VMConfig: Codable {
   let cpus: Int
   let memoryMB: Int
   let diskSizeGB: Int
+  /// Human description of the VM's purpose (required at `virt create`,
+  /// editable with `virt set`). Optional in storage for backward
+  /// compatibility with configs written before descriptions existed.
+  let description: String?
   /// Stable MAC address assigned at create time. Optional for backward
   /// compatibility with configs written before MACs were persisted;
   /// one is assigned and saved on first boot.
@@ -20,7 +24,8 @@ struct VMConfig: Codable {
   let bridgeInterface: String?
 
   init(
-    name: String, cpus: Int, memoryMB: Int, diskSizeGB: Int, macAddress: String? = nil,
+    name: String, cpus: Int, memoryMB: Int, diskSizeGB: Int, description: String? = nil,
+    macAddress: String? = nil,
     rootDevice: String? = nil, extraKernelArgs: String? = nil,
     networkMode: String? = nil, bridgeInterface: String? = nil
   ) {
@@ -28,6 +33,7 @@ struct VMConfig: Codable {
     self.cpus = cpus
     self.memoryMB = memoryMB
     self.diskSizeGB = diskSizeGB
+    self.description = description
     self.macAddress = macAddress
     self.rootDevice = rootDevice
     self.extraKernelArgs = extraKernelArgs
@@ -38,15 +44,25 @@ struct VMConfig: Codable {
   func withMAC(_ mac: String) -> VMConfig {
     VMConfig(
       name: name, cpus: cpus, memoryMB: memoryMB, diskSizeGB: diskSizeGB,
-      macAddress: mac, rootDevice: rootDevice, extraKernelArgs: extraKernelArgs,
-      networkMode: networkMode, bridgeInterface: bridgeInterface)
+      description: description, macAddress: mac, rootDevice: rootDevice,
+      extraKernelArgs: extraKernelArgs, networkMode: networkMode,
+      bridgeInterface: bridgeInterface)
   }
 
   func withKernelBoot(rootDevice: String, extraArgs: String?) -> VMConfig {
     VMConfig(
       name: name, cpus: cpus, memoryMB: memoryMB, diskSizeGB: diskSizeGB,
-      macAddress: macAddress, rootDevice: rootDevice, extraKernelArgs: extraArgs,
-      networkMode: networkMode, bridgeInterface: bridgeInterface)
+      description: description, macAddress: macAddress, rootDevice: rootDevice,
+      extraKernelArgs: extraArgs, networkMode: networkMode,
+      bridgeInterface: bridgeInterface)
+  }
+
+  func withDescription(_ newDescription: String) -> VMConfig {
+    VMConfig(
+      name: name, cpus: cpus, memoryMB: memoryMB, diskSizeGB: diskSizeGB,
+      description: newDescription, macAddress: macAddress, rootDevice: rootDevice,
+      extraKernelArgs: extraKernelArgs, networkMode: networkMode,
+      bridgeInterface: bridgeInterface)
   }
 
   func write(to url: URL) throws {

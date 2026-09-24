@@ -94,6 +94,49 @@ struct VMConfigTests {
     #expect(updated.diskSizeGB == 8)
   }
 
+  @Test func descriptionRoundTrip() throws {
+    let config = VMConfig(
+      name: "milford", cpus: 4, memoryMB: 8192, diskSizeGB: 100,
+      description: "medium size vm with rocky 10 os")
+    let url = try makeTempConfigURL()
+    defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+    try config.write(to: url)
+    let loaded = try VMConfig.load(from: url)
+
+    #expect(loaded.description == "medium size vm with rocky 10 os")
+  }
+
+  @Test func legacyConfigWithoutDescriptionDecodes() throws {
+    // Configs written before descriptions existed must still load
+    let legacy = """
+      {"cpus":2,"diskSizeGB":10,"memoryMB":2048,"name":"old"}
+      """
+    let url = try makeTempConfigURL()
+    defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
+    try legacy.write(to: url, atomically: true, encoding: .utf8)
+    let loaded = try VMConfig.load(from: url)
+
+    #expect(loaded.description == nil)
+  }
+
+  @Test func withDescriptionPreservesOtherFields() {
+    let config = VMConfig(
+      name: "milford", cpus: 4, memoryMB: 8192, diskSizeGB: 100,
+      description: "before", macAddress: "02:11:22:33:44:55",
+      networkMode: "bridge", bridgeInterface: "en0")
+    let updated = config.withDescription("after")
+    #expect(updated.description == "after")
+    #expect(updated.name == "milford")
+    #expect(updated.cpus == 4)
+    #expect(updated.memoryMB == 8192)
+    #expect(updated.diskSizeGB == 100)
+    #expect(updated.macAddress == "02:11:22:33:44:55")
+    #expect(updated.networkMode == "bridge")
+    #expect(updated.bridgeInterface == "en0")
+  }
+
   @Test func loadCorruptFileThrows() throws {
     let url = try makeTempConfigURL()
     defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
