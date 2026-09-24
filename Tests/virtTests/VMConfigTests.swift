@@ -1,114 +1,105 @@
-import XCTest
+import Foundation
+import Testing
 
 @testable import virt
 
-final class VMConfigTests: XCTestCase {
-  func testRoundTrip() throws {
-    let config = VMConfig(name: "test", cpus: 4, memoryMB: 2048, diskSizeGB: 20)
+@Suite
+struct VMConfigTests {
+  private func makeTempConfigURL() throws -> URL {
     let tempDir = FileManager.default.temporaryDirectory
       .appendingPathComponent(UUID().uuidString)
     try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: tempDir) }
+    return tempDir.appendingPathComponent("config.json")
+  }
 
-    let url = tempDir.appendingPathComponent("config.json")
+  @Test func roundTrip() throws {
+    let config = VMConfig(name: "test", cpus: 4, memoryMB: 2048, diskSizeGB: 20)
+    let url = try makeTempConfigURL()
+    defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
+
     try config.write(to: url)
     let loaded = try VMConfig.load(from: url)
 
-    XCTAssertEqual(loaded.name, "test")
-    XCTAssertEqual(loaded.cpus, 4)
-    XCTAssertEqual(loaded.memoryMB, 2048)
-    XCTAssertEqual(loaded.diskSizeGB, 20)
+    #expect(loaded.name == "test")
+    #expect(loaded.cpus == 4)
+    #expect(loaded.memoryMB == 2048)
+    #expect(loaded.diskSizeGB == 20)
   }
 
-  func testJSONIsPrettyPrinted() throws {
+  @Test func jsonIsPrettyPrinted() throws {
     let config = VMConfig(name: "vm1", cpus: 1, memoryMB: 512, diskSizeGB: 5)
-    let tempDir = FileManager.default.temporaryDirectory
-      .appendingPathComponent(UUID().uuidString)
-    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: tempDir) }
+    let url = try makeTempConfigURL()
+    defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
-    let url = tempDir.appendingPathComponent("config.json")
     try config.write(to: url)
     let json = try String(contentsOf: url, encoding: .utf8)
 
     // Pretty printed JSON contains newlines
-    XCTAssertTrue(json.contains("\n"))
+    #expect(json.contains("\n"))
     // Sorted keys means cpus comes before name
     let cpusRange = json.range(of: "cpus")!
     let nameRange = json.range(of: "name")!
-    XCTAssertTrue(cpusRange.lowerBound < nameRange.lowerBound)
+    #expect(cpusRange.lowerBound < nameRange.lowerBound)
   }
 
-  func testMACRoundTrip() throws {
+  @Test func macRoundTrip() throws {
     let config = VMConfig(
       name: "test", cpus: 4, memoryMB: 2048, diskSizeGB: 20,
       macAddress: "02:11:22:33:44:55")
-    let tempDir = FileManager.default.temporaryDirectory
-      .appendingPathComponent(UUID().uuidString)
-    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: tempDir) }
+    let url = try makeTempConfigURL()
+    defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
-    let url = tempDir.appendingPathComponent("config.json")
     try config.write(to: url)
     let loaded = try VMConfig.load(from: url)
 
-    XCTAssertEqual(loaded.macAddress, "02:11:22:33:44:55")
+    #expect(loaded.macAddress == "02:11:22:33:44:55")
   }
 
-  func testLegacyConfigWithoutMACDecodes() throws {
+  @Test func legacyConfigWithoutMACDecodes() throws {
     // Configs written before MACs were persisted must still load
     let legacy = """
       {"cpus":2,"diskSizeGB":10,"memoryMB":2048,"name":"old"}
       """
-    let tempDir = FileManager.default.temporaryDirectory
-      .appendingPathComponent(UUID().uuidString)
-    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: tempDir) }
+    let url = try makeTempConfigURL()
+    defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
-    let url = tempDir.appendingPathComponent("config.json")
     try legacy.write(to: url, atomically: true, encoding: .utf8)
     let loaded = try VMConfig.load(from: url)
 
-    XCTAssertEqual(loaded.name, "old")
-    XCTAssertNil(loaded.macAddress)
+    #expect(loaded.name == "old")
+    #expect(loaded.macAddress == nil)
   }
 
-  func testNetworkModeRoundTrip() throws {
+  @Test func networkModeRoundTrip() throws {
     let config = VMConfig(
       name: "test", cpus: 2, memoryMB: 2048, diskSizeGB: 20,
       macAddress: "02:11:22:33:44:55", networkMode: "bridge", bridgeInterface: "en0")
-    let tempDir = FileManager.default.temporaryDirectory
-      .appendingPathComponent(UUID().uuidString)
-    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: tempDir) }
+    let url = try makeTempConfigURL()
+    defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
-    let url = tempDir.appendingPathComponent("config.json")
     try config.write(to: url)
     let loaded = try VMConfig.load(from: url)
 
-    XCTAssertEqual(loaded.networkMode, "bridge")
-    XCTAssertEqual(loaded.bridgeInterface, "en0")
+    #expect(loaded.networkMode == "bridge")
+    #expect(loaded.bridgeInterface == "en0")
   }
 
-  func testWithMACPreservesOtherFields() {
+  @Test func withMACPreservesOtherFields() {
     let config = VMConfig(name: "vm", cpus: 2, memoryMB: 1024, diskSizeGB: 8)
     let updated = config.withMAC("02:aa:bb:cc:dd:ee")
-    XCTAssertEqual(updated.macAddress, "02:aa:bb:cc:dd:ee")
-    XCTAssertEqual(updated.name, "vm")
-    XCTAssertEqual(updated.cpus, 2)
-    XCTAssertEqual(updated.memoryMB, 1024)
-    XCTAssertEqual(updated.diskSizeGB, 8)
+    #expect(updated.macAddress == "02:aa:bb:cc:dd:ee")
+    #expect(updated.name == "vm")
+    #expect(updated.cpus == 2)
+    #expect(updated.memoryMB == 1024)
+    #expect(updated.diskSizeGB == 8)
   }
 
-  func testLoadCorruptFileThrows() throws {
-    let tempDir = FileManager.default.temporaryDirectory
-      .appendingPathComponent(UUID().uuidString)
-    try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: tempDir) }
+  @Test func loadCorruptFileThrows() throws {
+    let url = try makeTempConfigURL()
+    defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
 
-    let url = tempDir.appendingPathComponent("config.json")
     try "not json".write(to: url, atomically: true, encoding: .utf8)
 
-    XCTAssertThrowsError(try VMConfig.load(from: url))
+    #expect(throws: (any Error).self) { try VMConfig.load(from: url) }
   }
 }

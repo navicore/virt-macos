@@ -1,8 +1,10 @@
-import XCTest
+import Foundation
+import Testing
 
 @testable import virt
 
-final class KernelImageTests: XCTestCase {
+@Suite
+struct KernelImageTests {
   private func writeTempFile(bytes: [UInt8]) throws -> URL {
     let url = FileManager.default.temporaryDirectory
       .appendingPathComponent(UUID().uuidString)
@@ -33,49 +35,49 @@ final class KernelImageTests: XCTestCase {
     return bytes
   }
 
-  func testRawARM64Image() throws {
+  @Test func rawARM64Image() throws {
     let url = try writeTempFile(bytes: makeRawARM64())
     defer { try? FileManager.default.removeItem(at: url) }
-    XCTAssertEqual(KernelImage.classify(url: url), .arm64Raw)
+    #expect(KernelImage.classify(url: url) == .arm64Raw)
   }
 
   /// Uncompressed kernels with an EFI stub have both "MZ" and the raw magic.
-  func testPEWithRawMagicIsBootable() throws {
+  @Test func peWithRawMagicIsBootable() throws {
     var bytes = makeRawARM64()
     bytes[0] = 0x4D
     bytes[1] = 0x5A
     let url = try writeTempFile(bytes: bytes)
     defer { try? FileManager.default.removeItem(at: url) }
-    XCTAssertEqual(KernelImage.classify(url: url), .arm64Raw)
+    #expect(KernelImage.classify(url: url) == .arm64Raw)
   }
 
   /// PE arm64 without the raw magic — a compressed (zboot) kernel.
-  func testPEARM64Compressed() throws {
+  @Test func peARM64Compressed() throws {
     let url = try writeTempFile(bytes: makePE(machine: 0xAA64))
     defer { try? FileManager.default.removeItem(at: url) }
-    XCTAssertEqual(KernelImage.classify(url: url), .arm64Compressed)
+    #expect(KernelImage.classify(url: url) == .arm64Compressed)
   }
 
-  func testPEX86() throws {
+  @Test func peX86() throws {
     let url = try writeTempFile(bytes: makePE(machine: 0x8664))
     defer { try? FileManager.default.removeItem(at: url) }
-    XCTAssertEqual(KernelImage.classify(url: url), .x8664)
+    #expect(KernelImage.classify(url: url) == .x8664)
   }
 
-  func testGarbageIsUnknown() throws {
+  @Test func garbageIsUnknown() throws {
     let url = try writeTempFile(bytes: [UInt8](repeating: 0xFF, count: 1024))
     defer { try? FileManager.default.removeItem(at: url) }
-    XCTAssertEqual(KernelImage.classify(url: url), .unknown)
+    #expect(KernelImage.classify(url: url) == .unknown)
   }
 
-  func testShortFileIsUnknown() throws {
+  @Test func shortFileIsUnknown() throws {
     let url = try writeTempFile(bytes: [0x4D, 0x5A])
     defer { try? FileManager.default.removeItem(at: url) }
-    XCTAssertEqual(KernelImage.classify(url: url), .unknown)
+    #expect(KernelImage.classify(url: url) == .unknown)
   }
 
-  func testMissingFileIsUnknown() {
+  @Test func missingFileIsUnknown() {
     let url = URL(fileURLWithPath: "/nonexistent/\(UUID().uuidString)")
-    XCTAssertEqual(KernelImage.classify(url: url), .unknown)
+    #expect(KernelImage.classify(url: url) == .unknown)
   }
 }

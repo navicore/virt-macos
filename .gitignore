@@ -1,4 +1,5 @@
 .claude/
 .build/
 .swiftpm/
+dist/
 iso/
