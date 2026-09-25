@@ -10,7 +10,10 @@ struct KernelImport: ParsableCommand {
   @Argument(help: "Name of the VM")
   var name: String
 
-  @Option(help: "Directory containing the guest's kernel/initrd (e.g. the virtiofs share)")
+  @Option(
+    help: "Directory containing the guest's kernel/initrd (e.g. the virtiofs share)",
+    completion: .file()
+  )
   var from: String
 
   @Option(help: "Root device for the kernel command line")

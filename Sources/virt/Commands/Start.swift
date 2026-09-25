@@ -9,7 +9,7 @@ struct Start: ParsableCommand {
   @Argument(help: "Name of the VM")
   var name: String
 
-  @Option(help: "Host directory to share with the VM")
+  @Option(help: "Host directory to share with the VM", completion: .file())
   var share: String?
 
   func run() throws {

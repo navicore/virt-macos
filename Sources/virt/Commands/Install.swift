@@ -9,10 +9,10 @@ struct Install: ParsableCommand {
   @Argument(help: "Name of the VM")
   var name: String
 
-  @Option(help: "Path to ISO image to attach")
+  @Option(help: "Path to ISO image to attach", completion: .file(extensions: ["iso"]))
   var iso: String?
 
-  @Option(help: "Host directory to share with the VM")
+  @Option(help: "Host directory to share with the VM", completion: .file())
   var share: String?
 
   func run() throws {
