@@ -68,7 +68,9 @@ jobs:
           set -eu
           VERSION="${GITHUB_REF_NAME#v}"
           ASSET="virt-$VERSION-aarch64-apple-darwin.tar.gz"
-          API="https://git.navicore.tech/api/v1/repos/navicore/virt"
+          # GITHUB_REPOSITORY is owner/repo of the triggering repo, so this
+          # workflow is agnostic to repo renames.
+          API="https://git.navicore.tech/api/v1/repos/${GITHUB_REPOSITORY}"
 
           echo "::group::Find or create the release (re-run safe)"
           # Reuse the release if it exists (404 -> empty), else create it
@@ -103,4 +105,4 @@ jobs:
           done
           echo "::endgroup::"
 
-          echo "Released virt $VERSION: https://git.navicore.tech/navicore/virt/releases/tag/v$VERSION"
+          echo "Released virt $VERSION: https://git.navicore.tech/${GITHUB_REPOSITORY}/releases/tag/v$VERSION"
