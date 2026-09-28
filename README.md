@@ -2,6 +2,19 @@
 
 A CLI tool for managing Linux VMs on macOS using Apple's Virtualization.framework.
 
+Sibling tool for Linux hosts: **[virt-linux](https://git.navicore.tech/navicore/virt-linux)**
+([GitHub mirror](https://github.com/navicore/virt-linux)) — the Rust/QEMU twin of this
+tool. Same command surface, same `~/.virt/vms/` on-disk layout, so disks, kernels, and
+configs move between the two with plain copies.
+
+## Source and mirrors
+
+The home of this project is my Forgejo:
+**[git.navicore.tech/navicore/virt-macos](https://git.navicore.tech/navicore/virt-macos)** —
+the canonical source of truth for code and releases. It is mirrored to
+**[github.com/navicore/virt-macos](https://github.com/navicore/virt-macos)**; issues,
+pull requests, and forks are welcome on the GitHub mirror.
+
 ## Requirements
 
 - macOS 13+ on Apple Silicon
@@ -41,7 +54,7 @@ root-owned files are left in `.build/`.
 `.forgejo/workflows/release.yml`: it stamps the tag into
 `Sources/virt/Version.swift`, commits the bump to `main`, builds and
 signs the release binary, and publishes it to the
-[releases page](https://git.navicore.tech/navicore/virt/releases).
+[releases page](https://git.navicore.tech/navicore/virt-macos/releases).
 (Requires the repo secret `PAT` — a token with `write:repository`.)
 
 ### Install from a release
