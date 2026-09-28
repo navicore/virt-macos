@@ -5,5 +5,5 @@
 
 /// Semantic version (`X.Y.Z`), reported by `virt --version`.
 enum VirtVersion {
-  static let current = "0.2.0"
+  static let current = "0.3.0"
 }
