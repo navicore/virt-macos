@@ -89,4 +89,24 @@ struct VMDirectory {
       return VMDirectory(name: name)
     }
   }
+
+  /// A VM name becomes a directory name — keep it safe. Returns an
+  /// error message, or nil when the name is acceptable (same rules as
+  /// virt-linux, so names move between the two tools unchanged).
+  static func nameValidationError(_ name: String) -> String? {
+    if name.isEmpty { return "VM name must not be empty" }
+    if name.count > 64 { return "VM name must be at most 64 characters" }
+    if name.hasPrefix(".") {
+      return "VM name must not start with '.' (hidden directory)"
+    }
+    let charactersAllowed = name.allSatisfy { character in
+      (character.isASCII && character.isLetter)
+        || (character.isASCII && character.isNumber)
+        || character == "-" || character == "_" || character == "."
+    }
+    if !charactersAllowed {
+      return "VM name may contain only letters, digits, '-', '_', '.'"
+    }
+    return nil
+  }
 }

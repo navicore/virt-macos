@@ -65,6 +65,26 @@ struct VMConfig: Codable {
       bridgeInterface: bridgeInterface)
   }
 
+  /// `virt clone`: same hardware, boot setup, and network mode — new
+  /// name, description, and MAC.
+  func withCloneIdentity(name: String, description: String, macAddress: String) -> VMConfig {
+    VMConfig(
+      name: name, cpus: cpus, memoryMB: memoryMB, diskSizeGB: diskSizeGB,
+      description: description, macAddress: macAddress, rootDevice: rootDevice,
+      extraKernelArgs: extraKernelArgs, networkMode: networkMode,
+      bridgeInterface: bridgeInterface)
+  }
+
+  /// Short network descriptor for `virt list`: nat | bridge (en0).
+  var networkDisplay: String {
+    switch networkMode {
+    case "bridge":
+      return "bridge (\(bridgeInterface ?? "primary"))"
+    default:
+      return "nat"
+    }
+  }
+
   func write(to url: URL) throws {
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

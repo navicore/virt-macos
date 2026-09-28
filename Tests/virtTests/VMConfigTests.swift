@@ -137,6 +137,43 @@ struct VMConfigTests {
     #expect(updated.bridgeInterface == "en0")
   }
 
+  @Test func withCloneIdentityPreservesHardwareAndNetwork() {
+    let config = VMConfig(
+      name: "template", cpus: 4, memoryMB: 8192, diskSizeGB: 100,
+      description: "gold image", macAddress: "02:aa:bb:cc:dd:ee",
+      rootDevice: "/dev/vda2", extraKernelArgs: "console=hvc0",
+      networkMode: "bridge", bridgeInterface: "en0")
+    let cloned = config.withCloneIdentity(
+      name: "node1", description: "clone of template", macAddress: "02:11:22:33:44:55")
+
+    #expect(cloned.name == "node1")
+    #expect(cloned.description == "clone of template")
+    #expect(cloned.macAddress == "02:11:22:33:44:55")
+    #expect(cloned.cpus == 4)
+    #expect(cloned.memoryMB == 8192)
+    #expect(cloned.diskSizeGB == 100)
+    #expect(cloned.rootDevice == "/dev/vda2")
+    #expect(cloned.extraKernelArgs == "console=hvc0")
+    #expect(cloned.networkMode == "bridge")
+    #expect(cloned.bridgeInterface == "en0")
+  }
+
+  @Test func networkDisplayModes() {
+    #expect(VMConfig(name: "n", cpus: 1, memoryMB: 512, diskSizeGB: 1).networkDisplay == "nat")
+    #expect(
+      VMConfig(name: "n", cpus: 1, memoryMB: 512, diskSizeGB: 1, networkMode: "nat")
+        .networkDisplay == "nat")
+    #expect(
+      VMConfig(name: "n", cpus: 1, memoryMB: 512, diskSizeGB: 1, networkMode: "bridge")
+        .networkDisplay == "bridge (primary)")
+    #expect(
+      VMConfig(
+        name: "n", cpus: 1, memoryMB: 512, diskSizeGB: 1, networkMode: "bridge",
+        bridgeInterface: "en0"
+      )
+      .networkDisplay == "bridge (en0)")
+  }
+
   @Test func loadCorruptFileThrows() throws {
     let url = try makeTempConfigURL()
     defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }

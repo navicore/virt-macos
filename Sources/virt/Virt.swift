@@ -8,6 +8,7 @@ struct Virt: ParsableCommand {
     version: "virt \(VirtVersion.current)",
     subcommands: [
       Create.self,
+      Clone.self,
       Install.self,
       Start.self,
       Stop.self,
