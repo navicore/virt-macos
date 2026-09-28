@@ -15,8 +15,8 @@ struct List: ParsableCommand {
       return
     }
 
-    let headers = ["NAME", "CPUS", "MEMORY", "DISK", "STATUS", "DESCRIPTION"]
-    let rightAlign = [false, true, true, true, false, false]
+    let headers = ["NAME", "CPUS", "MEMORY", "DISK", "STATUS", "NETWORK", "DESCRIPTION"]
+    let rightAlign = [false, true, true, true, false, false, false]
 
     var rows: [[String]] = []
     for dir in vms.sorted(by: { $0.name < $1.name }) {
@@ -27,10 +27,11 @@ struct List: ParsableCommand {
           "\(config.memoryMB) MB",
           "\(config.diskSizeGB) GB",
           vmStatus(dir: dir),
+          config.networkDisplay,
           truncate(config.description ?? "—", toWidth: 40),
         ])
       } else {
-        rows.append([dir.name, "-", "-", "-", "(corrupt config)", "-"])
+        rows.append([dir.name, "-", "-", "-", "(corrupt config)", "-", "-"])
       }
     }
 

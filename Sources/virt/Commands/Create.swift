@@ -46,6 +46,9 @@ struct Create: ParsableCommand {
   }
 
   func validate() throws {
+    if let error = VMDirectory.nameValidationError(name) {
+      throw ValidationError(error)
+    }
     guard cpus >= 1 else {
       throw ValidationError("--cpus must be at least 1")
     }

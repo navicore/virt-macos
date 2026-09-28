@@ -30,4 +30,20 @@ struct VMDirectoryTests {
     try dir.remove()
     #expect(!dir.exists)
   }
+
+  /// Same rules as virt-linux — names must stay safe as directory
+  /// names and move between the two tools unchanged.
+  @Test func nameValidation() {
+    #expect(VMDirectory.nameValidationError("milford") == nil)
+    #expect(VMDirectory.nameValidationError("k3s-node-1") == nil)
+    #expect(VMDirectory.nameValidationError("a.b_c-d") == nil)
+
+    #expect(VMDirectory.nameValidationError("") != nil)
+    #expect(VMDirectory.nameValidationError(".hidden") != nil)
+    #expect(VMDirectory.nameValidationError("..") != nil)
+    #expect(VMDirectory.nameValidationError("a/b") != nil)
+    #expect(VMDirectory.nameValidationError("a b") != nil)
+    #expect(VMDirectory.nameValidationError("ño") != nil)
+    #expect(VMDirectory.nameValidationError(String(repeating: "a", count: 65)) != nil)
+  }
 }

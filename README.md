@@ -194,6 +194,38 @@ systemctl enable spice-vdagentd
 
 Copy/paste works after the next boot.
 
+### Clone a VM (templates)
+
+Keep a fully configured VM stopped — GUI installed, kernel imported —
+and clone it for each new instance:
+
+```
+virt clone testrocky-i k3s-node1
+virt clone testrocky-i k3s-node2
+```
+
+A clone copies the disk, the EFI variable store, imported kernel files,
+and the config under a new name with a **fresh MAC** — everything else
+(hardware, network mode) passes through unchanged. On APFS the disk copy
+is a `clonefile`: instant even for a 100 GB template, and the blocks are
+shared copy-on-write, so a clone costs no extra space until either VM
+writes. Clones are independent full images — writing in a clone never
+touches the template. `--description` overrides the default
+`clone of <source>`.
+
+**Guest identity is copied too.** There is no `virt-sysprep` on macOS, so
+each clone starts with the template's machine-id and SSH host keys. For
+clusters (k3s keys nodes off machine-id), reset them inside the clone on
+first boot:
+
+```
+sudo rm -f /etc/machine-id /var/lib/dbus/machine-id
+sudo systemd-machine-id-setup
+sudo rm /etc/ssh/ssh_host_*
+sudo dpkg-reconfigure openssh-server   # Debian/Ubuntu; Rocky/Fedora: systemctl restart sshd
+sudo hostnamectl set-hostname <new-name>
+```
+
 ### Headless console tips
 
 The serial console passes ANSI escape codes transparently. ncurses apps
@@ -222,8 +254,9 @@ ssh user@192.168.64.x
 ### Other commands
 
 ```
-virt list              # show all VMs, status, and description
+virt list              # show all VMs, status, network, and description
 virt set myvm --description "new purpose"
+virt clone myvm node2  # clone a stopped VM under a new name (fresh MAC)
 virt stop myvm         # graceful shutdown, then force kill
 virt delete myvm       # remove VM (prompts for confirmation)
 virt delete myvm --force
